@@ -1,9 +1,4 @@
-
-
-/**
- * @file player-sdfat-a2dp.ino
- * @brief see https://github.com/pschatzmann/arduino-audio-tools/blob/main/examples/examples-player/player-sdfat-a2dp/README.md
- * 
+/** 
  * @author Phil Schatzmann
  * @copyright GPLv3
  */
@@ -14,6 +9,11 @@
 #include "AudioTools/AudioLibs/A2DPStream.h"
 #include "AudioTools/Disk/AudioSourceSDFAT.h"
 #include "AudioTools/AudioCodecs/CodecMP3Helix.h"
+// #include "SD.h"
+
+#define playPauseBtn 9
+#define nextBtn 10
+#define prevBtn 11
 
 const char *startFilePath="/";
 const char* ext="mp3";
@@ -22,14 +22,26 @@ A2DPStream out;
 MP3DecoderHelix decoder;
 AudioPlayer player(source, out, decoder);
 
+
+const unsigned long debounceDelay = 200;
+unsigned long lastPlayPause = 0;
+unsigned long lastNext = 0;
+unsigned long lastPrev = 0;
+
 void setup() {
   Serial.begin(115200);
-  AudioToolsLogger.begin(Serial, AudioToolsLogLevel::Warning);
+  Serial.println("=== Program started ===");
+  // if(!SD.begin(5)) {
+  //   Serial.println("SD init failed!");
+  // } else {
+  //   Serial.println("SD init OK");
+  // }
+  AudioToolsLogger.begin(Serial, AudioToolsLogLevel::Info);
   // Serial.println("PLAYING IAN");
   // setup player
   // Setting up SPI if necessary with the right SD pins by calling 
   // SPI.begin(PIN_AUDIO_KIT_SD_CARD_CLK, PIN_AUDIO_KIT_SD_CARD_MISO, PIN_AUDIO_KIT_SD_CARD_MOSI, PIN_AUDIO_KIT_SD_CARD_CS);
-  player.setVolume(0.9);
+  player.setVolume(0.5);
   player.begin();
 
   // setup output - We send the test signal via A2DP - so we conect to a Bluetooth Speaker
@@ -43,5 +55,27 @@ void setup() {
 }
 
 void loop() {
+  // Play/Pause button
+if (digitalRead(playPauseBtn) == LOW && (millis() - lastPlayPause > debounceDelay)) {
+    lastPlayPause = millis();
+    if (player.isActive()) {
+      player.stop();
+    } else {
+      player.begin();
+    }
+  }
+
+  // next song button
+if (digitalRead(nextBtn) == LOW && (millis() - lastNext > debounceDelay)) {
+    lastNext = millis();
+    player.next();
+  }
+
+    // prev song button
+if (digitalRead(prevBtn) == LOW && (millis() - lastPrev > debounceDelay)) {
+    lastPrev   = millis();
+    player.previous();
+  }
+
   player.copy();
 }
