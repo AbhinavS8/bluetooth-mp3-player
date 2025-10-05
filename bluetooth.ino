@@ -1,15 +1,9 @@
-/** 
- * @author Phil Schatzmann
- * @copyright GPLv3
- */
-
 // #define HELIX_LOGGING_ACTIVE false
 
 #include "AudioTools.h"
 #include "AudioTools/AudioLibs/A2DPStream.h"
 #include "AudioTools/Disk/AudioSourceSDFAT.h"
 #include "AudioTools/AudioCodecs/CodecMP3Helix.h"
-// #include "SD.h"
 
 #define playPauseBtn 25
 #define nextBtn 26
@@ -34,16 +28,12 @@ float lastVolume = 0.5;
 void setup() {
   Serial.begin(115200);
   Serial.println("=== Program started ===");
-  // if(!SD.begin(5)) {
-  //   Serial.println("SD init failed!");
-  // } else {
-  //   Serial.println("SD init OK");
-  // }
+
   pinMode(playPauseBtn, INPUT_PULLUP);
   pinMode(nextBtn, INPUT_PULLUP);
   pinMode(prevBtn, INPUT_PULLUP);
   AudioToolsLogger.begin(Serial, AudioToolsLogLevel::Info);
-  // Serial.println("PLAYING IAN");
+
   // setup player
   // Setting up SPI if necessary with the right SD pins by calling 
   // SPI.begin(PIN_AUDIO_KIT_SD_CARD_CLK, PIN_AUDIO_KIT_SD_CARD_MISO, PIN_AUDIO_KIT_SD_CARD_MOSI, PIN_AUDIO_KIT_SD_CARD_CS);
