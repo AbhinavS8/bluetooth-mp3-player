@@ -11,9 +11,9 @@
 #include "AudioTools/AudioCodecs/CodecMP3Helix.h"
 // #include "SD.h"
 
-#define playPauseBtn 9
-#define nextBtn 10
-#define prevBtn 11
+#define playPauseBtn 25
+#define nextBtn 26
+#define prevBtn 27
 
 const char *startFilePath="/";
 const char* ext="mp3";
@@ -36,6 +36,9 @@ void setup() {
   // } else {
   //   Serial.println("SD init OK");
   // }
+  pinMode(playPauseBtn, INPUT_PULLUP);
+  pinMode(nextBtn, INPUT_PULLUP);
+  pinMode(prevBtn, INPUT_PULLUP);
   AudioToolsLogger.begin(Serial, AudioToolsLogLevel::Info);
   // Serial.println("PLAYING IAN");
   // setup player
