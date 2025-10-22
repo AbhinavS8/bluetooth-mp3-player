@@ -1,23 +1,43 @@
-// #define HELIX_LOGGING_ACTIVE false
-
+#include <Arduino.h>
+#include <algorithm> // for std::min
 #include "AudioTools.h"
 #include "AudioTools/AudioLibs/A2DPStream.h"
 #include "AudioTools/Disk/AudioSourceSDFAT.h"
 #include "AudioTools/AudioCodecs/CodecMP3Helix.h"
+#include "skipAudio.h"
 
 #define playPauseBtn 25
 #define nextBtn 26
 #define prevBtn 27
 #define potPin 36
 
-const char *startFilePath="/";
-const char* ext="mp3";
-AudioSourceSDFAT source(startFilePath, ext); // , PIN_AUDIO_KIT_SD_CARD_CS);
+const char *startFilePath = "/";
+const char *ext = "mp3";
+
+// === Audio chain ===
+// Source -> Decoder -> A2DP Output
+AudioSourceSDFAT source(startFilePath, ext);
 A2DPStream out;
 MP3DecoderHelix decoder;
 AudioPlayer player(source, out, decoder);
 
+// --- Byte counting state and callback ----------------------------------
+static size_t bytesCopiedSinceStart = 0; 
+static bool copyingCallbackRegistered = false;
 
+void bytesCopiedCallback(void *obj, void *buffer, size_t len) {
+  bytesCopiedSinceStart += len;  // track how many bytes we’ve sent into decoder
+}
+
+
+static SkipBytesStream skipStream;
+
+// --- Pause/Resume bookkeeping --------------------------------------------
+unsigned long currentFileIndex = 0;
+size_t savedByteOffset = 0;
+bool isPaused = false;
+
+// UI debounce & volume state
 const unsigned long debounceDelay = 200;
 unsigned long lastPlayPause = 0;
 unsigned long lastNext = 0;
@@ -32,55 +52,97 @@ void setup() {
   pinMode(playPauseBtn, INPUT_PULLUP);
   pinMode(nextBtn, INPUT_PULLUP);
   pinMode(prevBtn, INPUT_PULLUP);
-  AudioToolsLogger.begin(Serial, AudioToolsLogLevel::Info);
-
-  // setup player
-  // Setting up SPI if necessary with the right SD pins by calling 
-  // SPI.begin(PIN_AUDIO_KIT_SD_CARD_CLK, PIN_AUDIO_KIT_SD_CARD_MISO, PIN_AUDIO_KIT_SD_CARD_MOSI, PIN_AUDIO_KIT_SD_CARD_CS);
   pinMode(potPin, INPUT);
-  player.setVolume(currentVolume);
-  player.begin();
 
-  // setup output - We send the test signal via A2DP - so we conect to a Bluetooth Speaker
+  AudioToolsLogger.begin(Serial, AudioToolsLogLevel::Info);
+  player.setVolume(currentVolume);
+
+  // Register StreamCopy byte-counting callback once
+  if (!copyingCallbackRegistered) {
+    player.getStreamCopy().setCallbackOnWrite(bytesCopiedCallback, nullptr);
+    copyingCallbackRegistered = true;
+  }
+
+  // Start player (selects first stream by begin())
+  if (!player.begin()) {
+    
+    Serial.println("Player.begin() failed!");
+  }
+
+  // Configure A2DP output
   auto cfg = out.defaultConfig(TX_MODE);
-  cfg.silence_on_nodata = true; // prevent disconnect when there is no audio data
-  cfg.name = "Jabra Elite Active 65t";  // set the device here. Otherwise the first available device is used for output
-  // cfg.auto_reconnect = true;  // if this is use we just quickly connect to the last device ignoring cfg.name
+  cfg.silence_on_nodata = true;
+  cfg.name = "";
+  // cfg.auto_reconnect = true;
   out.begin(cfg);
 
-
+  // Initialize counters
+  bytesCopiedSinceStart = 0;
+  savedByteOffset = 0;
+  isPaused = false;
 }
 
 void loop() {
-  // Play/Pause button
+  // --- Play/Pause Button ---
   if (digitalRead(playPauseBtn) == LOW && (millis() - lastPlayPause > debounceDelay)) {
     lastPlayPause = millis();
+
     if (player.isActive()) {
+      Serial.println("Pausing...");
       player.stop();
+      player.setAutoNext(false);
+      savedByteOffset = bytesCopiedSinceStart;
+      isPaused = true;
+      Serial.printf("Saved byte offset: %u\n", (unsigned)savedByteOffset);
+      decoder.end();
     } else {
-      player.begin();
+      Serial.println("Resuming...");
+      int idx = source.index();
+      if (idx < 0)
+        idx = 0;
+
+      Serial.printf("Resuming index: %d\n", idx);
+      Stream *fileStream = source.selectStream(idx);
+      if (!fileStream) {
+        Serial.println("Could not open file to resume!");
+      } else {
+        skipStream.setStream(*fileStream);
+        skipStream.setSkip(savedByteOffset);
+
+        decoder.begin();
+        player.setStream(&skipStream);
+        player.play();
+        player.setAutoNext(true);
+
+        isPaused = false;
+      }
     }
   }
 
-  // next song button
+  // --- Next Song ---
   if (digitalRead(nextBtn) == LOW && (millis() - lastNext > debounceDelay)) {
     lastNext = millis();
+    bytesCopiedSinceStart = 0;
+    savedByteOffset = 0;
     player.next();
   }
 
-    // prev song button
+  // --- Previous Song ---
   if (digitalRead(prevBtn) == LOW && (millis() - lastPrev > debounceDelay)) {
-    lastPrev   = millis();
+    lastPrev = millis();
+    bytesCopiedSinceStart = 0;
+    savedByteOffset = 0;
     player.previous();
   }
 
-  int potValue = analogRead(potPin);  // 0 - 4095
-  float newVolume = potValue / 4095.0;
-
-  if (abs(newVolume - lastVolume) > 0.02) {
+  // --- Volume Potentiometer ---
+  int potValue = analogRead(potPin);
+  float newVolume = potValue / 4095.0f;
+  if (fabs(newVolume - lastVolume) > 0.05f) {
     player.setVolume(newVolume);
     lastVolume = newVolume;
   }
 
+  // --- Copy step (core audio loop) ---
   player.copy();
 }
