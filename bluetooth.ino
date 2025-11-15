@@ -1,5 +1,4 @@
 #include <Arduino.h>
-#include <algorithm> // for std::min
 #include "AudioTools.h"
 #include "AudioTools/AudioLibs/A2DPStream.h"
 #include "AudioTools/Disk/AudioSourceSDFAT.h"
@@ -14,14 +13,13 @@
 const char *startFilePath = "/";
 const char *ext = "mp3";
 
-// === Audio chain ===
 // Source -> Decoder -> A2DP Output
 AudioSourceSDFAT source(startFilePath, ext);
 A2DPStream out;
 MP3DecoderHelix decoder;
 AudioPlayer player(source, out, decoder);
 
-// --- Byte counting state and callback ----------------------------------
+// Byte counting state and callback 
 static size_t bytesCopiedSinceStart = 0; 
 static bool copyingCallbackRegistered = false;
 
@@ -32,7 +30,7 @@ void bytesCopiedCallback(void *obj, void *buffer, size_t len) {
 
 static SkipBytesStream skipStream;
 
-// --- Pause/Resume bookkeeping --------------------------------------------
+// --- Pause/Resume bookkeeping ---
 unsigned long currentFileIndex = 0;
 size_t savedByteOffset = 0;
 bool isPaused = false;
@@ -63,7 +61,7 @@ void setup() {
     copyingCallbackRegistered = true;
   }
 
-  // Start player (selects first stream by begin())
+  // Start player
   if (!player.begin()) {
     
     Serial.println("Player.begin() failed!");
@@ -76,7 +74,6 @@ void setup() {
   // cfg.auto_reconnect = true;
   out.begin(cfg);
 
-  // Initialize counters
   bytesCopiedSinceStart = 0;
   savedByteOffset = 0;
   isPaused = false;
@@ -143,6 +140,5 @@ void loop() {
     lastVolume = newVolume;
   }
 
-  // --- Copy step (core audio loop) ---
   player.copy();
 }
