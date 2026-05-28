@@ -1,143 +1,98 @@
-#include <Arduino.h>
+/**
+ * @file player-sdfat-a2dp.ino
+ * @brief see https://github.com/pschatzmann/arduino-audio-tools/blob/main/examples/examples-player/player-sdfat-a2dp/README.md
+*/
+
+//remove this, to find issues regarding mp3 decoding
+// #define HELIX_LOGGING_ACTIVE false
+
 #include "AudioTools.h"
 #include "AudioTools/AudioLibs/A2DPStream.h"
 #include "AudioTools/Disk/AudioSourceSDFAT.h"
 #include "AudioTools/AudioCodecs/CodecMP3Helix.h"
-#include "skipAudio.h"
 
-#define playPauseBtn 25
-#define nextBtn 26
-#define prevBtn 27
-#define potPin 36
-
-const char *startFilePath = "/";
-const char *ext = "mp3";
-
-// Source -> Decoder -> A2DP Output
-AudioSourceSDFAT source(startFilePath, ext);
+const char *startFilePath="/";
+const char* ext="mp3";
+AudioSourceSDFAT source(startFilePath, ext); // , PIN_AUDIO_KIT_SD_CARD_CS);
 A2DPStream out;
 MP3DecoderHelix decoder;
 AudioPlayer player(source, out, decoder);
 
-// Byte counting state and callback 
-static size_t bytesCopiedSinceStart = 0; 
-static bool copyingCallbackRegistered = false;
+const int playPauseBtn = 26;
+const int nextBtn = 25;
+const int prevBtn = 27;
 
-void bytesCopiedCallback(void *obj, void *buffer, size_t len) {
-  bytesCopiedSinceStart += len;  // track how many bytes we’ve sent into decoder
-}
-
-
-static SkipBytesStream skipStream;
-
-// --- Pause/Resume bookkeeping ---
-unsigned long currentFileIndex = 0;
-size_t savedByteOffset = 0;
-bool isPaused = false;
-
-// UI debounce & volume state
+// ===== Debounce Timing =====
 const unsigned long debounceDelay = 200;
 unsigned long lastPlayPause = 0;
 unsigned long lastNext = 0;
 unsigned long lastPrev = 0;
-float currentVolume = 0.5;
-float lastVolume = 0.5;
+bool paused = false;
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("=== Program started ===");
+  AudioToolsLogger.begin(Serial, AudioToolsLogLevel::Warning);
 
   pinMode(playPauseBtn, INPUT_PULLUP);
   pinMode(nextBtn, INPUT_PULLUP);
   pinMode(prevBtn, INPUT_PULLUP);
-  pinMode(potPin, INPUT);
+  // setup player
+  // Setting up SPI if necessary with the right SD pins by calling 
+  // SPI.begin(PIN_AUDIO_KIT_SD_CARD_CLK, PIN_AUDIO_KIT_SD_CARD_MISO, PIN_AUDIO_KIT_SD_CARD_MOSI, PIN_AUDIO_KIT_SD_CARD_CS);
+  player.setVolume(0.8);
+  player.begin();
 
-  AudioToolsLogger.begin(Serial, AudioToolsLogLevel::Info);
-  player.setVolume(currentVolume);
-
-  // Register StreamCopy byte-counting callback once
-  if (!copyingCallbackRegistered) {
-    player.getStreamCopy().setCallbackOnWrite(bytesCopiedCallback, nullptr);
-    copyingCallbackRegistered = true;
-  }
-
-  // Start player
-  if (!player.begin()) {
-    
-    Serial.println("Player.begin() failed!");
-  }
-
-  // Configure A2DP output
   auto cfg = out.defaultConfig(TX_MODE);
-  cfg.silence_on_nodata = true;
-  cfg.name = "";
-  // cfg.auto_reconnect = true;
+  cfg.silence_on_nodata = true; // prevent disconnect when there is no audio data
+  cfg.name = "";  // set the device here. Otherwise the first available device is used for output
+  //cfg.auto_reconnect = true;  // if this is use we just quickly connect to the last device ignoring cfg.name
   out.begin(cfg);
 
-  bytesCopiedSinceStart = 0;
-  savedByteOffset = 0;
-  isPaused = false;
+  
+
 }
 
 void loop() {
-  // --- Play/Pause Button ---
-  if (digitalRead(playPauseBtn) == LOW && (millis() - lastPlayPause > debounceDelay)) {
+
+  // --- Play / Pause ---
+  if (digitalRead(playPauseBtn) == LOW &&
+      millis() - lastPlayPause > debounceDelay) {
+
     lastPlayPause = millis();
 
-    if (player.isActive()) {
-      Serial.println("Pausing...");
+    paused = !paused;
+
+    if (paused) {
+      Serial.println("Paused");
       player.stop();
-      player.setAutoNext(false);
-      savedByteOffset = bytesCopiedSinceStart;
-      isPaused = true;
-      Serial.printf("Saved byte offset: %u\n", (unsigned)savedByteOffset);
-      decoder.end();
     } else {
-      Serial.println("Resuming...");
-      int idx = source.index();
-      if (idx < 0)
-        idx = 0;
-
-      Serial.printf("Resuming index: %d\n", idx);
-      Stream *fileStream = source.selectStream(idx);
-      if (!fileStream) {
-        Serial.println("Could not open file to resume!");
-      } else {
-        skipStream.setStream(*fileStream);
-        skipStream.setSkip(savedByteOffset);
-
-        decoder.begin();
-        player.setStream(&skipStream);
-        player.play();
-        player.setAutoNext(true);
-
-        isPaused = false;
-      }
+      Serial.println("Playing");
+      player.play();
     }
   }
 
-  // --- Next Song ---
-  if (digitalRead(nextBtn) == LOW && (millis() - lastNext > debounceDelay)) {
+  // --- Next ---
+  if (digitalRead(nextBtn) == LOW &&
+      millis() - lastNext > debounceDelay) {
+
     lastNext = millis();
-    bytesCopiedSinceStart = 0;
-    savedByteOffset = 0;
+
+    Serial.println("Next");
     player.next();
+
+    paused = false;
   }
 
-  // --- Previous Song ---
-  if (digitalRead(prevBtn) == LOW && (millis() - lastPrev > debounceDelay)) {
+  // --- Previous ---
+  if (digitalRead(prevBtn) == LOW &&
+      millis() - lastPrev > debounceDelay) {
+
     lastPrev = millis();
-    bytesCopiedSinceStart = 0;
-    savedByteOffset = 0;
-    player.previous();
-  }
 
-  // --- Volume Potentiometer ---
-  int potValue = analogRead(potPin);
-  float newVolume = potValue / 4095.0f;
-  if (fabs(newVolume - lastVolume) > 0.05f) {
-    player.setVolume(newVolume);
-    lastVolume = newVolume;
+    Serial.println("Previous");
+    player.previous();
+
+    paused = false;
   }
 
   player.copy();
