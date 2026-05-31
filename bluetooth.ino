@@ -1,11 +1,3 @@
-/**
- * @file player-sdfat-a2dp.ino
- * @brief see https://github.com/pschatzmann/arduino-audio-tools/blob/main/examples/examples-player/player-sdfat-a2dp/README.md
- * 
- * @author Phil Schatzmann
- * @copyright GPLv3
- */
-
 //remove this, to find issues regarding mp3 decoding
 // #define HELIX_LOGGING_ACTIVE false
 
@@ -13,6 +5,8 @@
 #include "AudioTools/AudioLibs/A2DPStream.h"
 #include "AudioTools/Disk/AudioSourceSDFAT.h"
 #include "AudioTools/AudioCodecs/CodecMP3Helix.h"
+#include <U8g2lib.h>
+#include <Wire.h>
 
 const char *startFilePath="/";
 const char* ext="mp3";
@@ -20,6 +14,9 @@ AudioSourceSDFAT source(startFilePath, ext); // , PIN_AUDIO_KIT_SD_CARD_CS);
 A2DPStream out;
 MP3DecoderHelix decoder;
 AudioPlayer player(source, out, decoder);
+
+//oled
+U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
 
 const int playPauseBtn = 26;
 const int nextBtn = 25;
@@ -57,13 +54,18 @@ void setup() {
   //cfg.auto_reconnect = true;  // if this is use we just quickly connect to the last device ignoring cfg.name
   out.begin(cfg);
 
-  
+  //oled
+  u8g2.begin();
+  u8g2.clearBuffer();
+  u8g2.setFont(u8g2_font_ncenB08_tr); // Choose a font
 
+  u8g2.drawStr(0, 10, "MP3 Playa");
+  u8g2.sendBuffer();
 }
 
 void loop() {
 
-
+  
   // --- Volume Control ---
   int potValue = analogRead(potPin);
 
@@ -95,6 +97,14 @@ void loop() {
       Serial.println("Playing");
       player.play();
     }
+    AudioInfo info = player.audioInfo();
+
+    Serial.printf(
+        "SR: %d  Bits: %d  Ch: %d\n",
+        info.sample_rate,
+        info.bits_per_sample,
+        info.channels
+    );
   }
 
   // --- Next ---
