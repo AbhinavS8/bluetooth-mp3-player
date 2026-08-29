@@ -2,7 +2,7 @@
 
 An MP3 player project that uses an ESP32 to read MP3 files from an SD card and stream audio to Bluetooth earbuds/headphones. 
 
-> Status: Work in progress
+> Status: V1 done, working on more features/optimizations
 
 ## Features
 - Streams audio from an SD card using an ESP32.
